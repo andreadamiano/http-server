@@ -1,7 +1,7 @@
 #include <stdio.h>
+#include "core/server.h"
 
 int main()
 {
-    printf("Hello World\n"); 
-    return 0; 
+    init_server(8080); 
 }

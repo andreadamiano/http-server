@@ -1,5 +1,5 @@
 CC = gcc
-CCFLAGS =  -std=c89 -O3
+CCFLAGS =  -std=c99 -O3 -D_POSIX_C_SOURCE=200809L
 LDFLAGS = 
 DEBUGFLAGS := -g -O0
 BUILD_DIR = build
@@ -11,10 +11,11 @@ DEPENDENCIES = $(OBJECTS:.o=.d)
 
 all: $(TARGET)
 
-$(TARGET): $(OBJECTS) | $(LIB_PATH)
-	$(CC) $(CCFLAGS) $(OBJECTS) $(LIB_PATH) -o $@ $(LDFLAGS)
+$(TARGET): $(OBJECTS) 
+	$(CC) $(CCFLAGS) $(OBJECTS) -o $@ $(LDFLAGS)
 
-$(BUILD_DIR)/%.o: $(SOURCE_DIR)/%.c Makefile | $(BUILD_DIR) $(LIB_PATH)
+$(BUILD_DIR)/%.o: $(SOURCE_DIR)/%.c Makefile | $(BUILD_DIR) 
+	mkdir -p $(dir $@)
 	$(CC) $(CCFLAGS) $(INCLUDE_DIRS) -MMD -MP -c $< -o $@
 
 -include $(DEPENDENCIES)
@@ -30,6 +31,6 @@ run:
 	./$(TARGET) 
 
 clean:
-	$(RM) $(BUILD_DIR)
+	$(RM) -r $(BUILD_DIR)
 
 .PHONY: run clean debug
