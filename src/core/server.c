@@ -8,6 +8,7 @@
 #include <fcntl.h>
 #include <netinet/in.h>
 #include <errno.h>
+#include <string.h>
 
 int epollfd; 
 int listening_sockets[LISTENING_SOCKETS] = {0}; 
@@ -125,7 +126,7 @@ void run_event_loop(thread_info* thread)
 
         for (int i = 0; i < n_events; ++i)
         {
-            if (thread->events[i].data.fd == thread->server_fd) //new connection received 
+            if (thread->events[i].data.fd == thread->server_fd) //handle new connection received 
             {
                 if (thread->events[i].events & EPOLLIN)  
                 {
@@ -140,7 +141,7 @@ void run_event_loop(thread_info* thread)
                 }
 
             }
-            else
+            else //handle received data 
             {
                 if (thread->events[i].events & EPOLLIN)
                 {
@@ -158,33 +159,70 @@ void run_event_loop(thread_info* thread)
 
 void handle_event(int epollfd, int fd)
 {
-    char receive_buffer[256]; 
+    char receive_buffer[1024]; 
     int n_bytes; 
+    size_t total_size = 0;
+    size_t buffer_size = 1024;
+    char* full_buffer = malloc(buffer_size);
+    if (!full_buffer) {
+        perror("Malloc failed");
+        remove_event(epollfd, fd);
+        close(fd);
+        return;
+    }
     
-    n_bytes = read(fd, receive_buffer, sizeof(receive_buffer) -1); 
-
-    if (n_bytes < 0)
-    {
-        if (errno == EAGAIN || errno == EWOULDBLOCK) 
+    //edge-triggered epoll: must consume all data
+    while (true) {
+        n_bytes = read(fd, receive_buffer, sizeof(receive_buffer) - 1); 
+        
+        if (n_bytes < 0) 
         {
-            printf("No data available now, try again later\n");
-        }
-        else 
+            if (errno == EAGAIN || errno == EWOULDBLOCK) 
+            {
+                break;
+            } else 
+            {
+                perror("read error");
+                free(full_buffer);
+                remove_event(epollfd, fd);
+                close(fd);
+                return;
+            }
+        } 
+        else if (n_bytes > 0) 
         {
-            perror("read error");
-            remove_event(epollfd, fd);
-            close(fd);  
+            //resize buffer if needed
+            if (total_size + n_bytes >= buffer_size) 
+            {
+                buffer_size *= 2;
+                char* new_buffer = realloc(full_buffer, buffer_size);
+                if (!new_buffer) 
+                {
+                    perror("Realloc failed");
+                    free(full_buffer);
+                    remove_event(epollfd, fd);
+                    close(fd);
+                    return;
+                }
+                full_buffer = new_buffer;
+            }
+            memcpy(full_buffer + total_size, receive_buffer, n_bytes);
+            total_size += n_bytes;
+            printf("%.*s\n", n_bytes, receive_buffer); 
+        } else if (n_bytes == 0) 
+        {
+            // Received end of file
+            break;
         }
     }
-    else if (n_bytes > 0)
-    {
-        fwrite(receive_buffer, 1, n_bytes, stdout);
-    }
-    else if (n_bytes == 0)
-    {
-        //received end of file 
-    } 
-
+    
+    full_buffer[total_size] = '\0'; // Null-terminate for parsing
+    Request request;
+    parse_request(full_buffer, &request);  
+    dispatch_route(&request, fd); 
+    free(full_buffer);
+    remove_event(epollfd, fd);
+    close(fd);  
 }
 
 void add_event(int epollfd, int fd)
@@ -213,4 +251,26 @@ void set_non_blocking(int fd)
     int flags; 
     flags = fcntl(fd, F_GETFL, 0); 
     fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+}
+
+void parse_request(char* buffer, Request* request)
+{
+    char *copy = buffer; 
+    char* headers_end; 
+    char* line; 
+
+    if ((line = strsep(&buffer, "\n"))== NULL)
+        return; 
+
+    request->method = strsep(&line, " "); 
+    request->path = strsep(&line, " "); 
+    headers_end = strstr(buffer, "\r\n\r\n"); //\r\n\r\n  this line separate the headers from the body
+    
+    if (headers_end) 
+    {
+        request->request_body = headers_end + (headers_end[1] == '\n' ? 2 : 4);
+    } else 
+    {
+        request->request_body = NULL;
+    }
 }

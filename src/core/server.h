@@ -4,6 +4,7 @@
 #include <pthread.h>
 #include <sys/epoll.h>
 #include <stdbool.h>
+#include "router.h"
 
 #define LISTENING_SOCKETS 8
 #define MAX_EVENTS 64
@@ -33,5 +34,6 @@ void handle_event(int epollfd, int fd);
 void add_event (int epollfd, int fd); 
 void remove_event(int epollfd, int fd); 
 void set_non_blocking(int fd); 
+void parse_request(char* buffer, Request* request);
 
 #endif
